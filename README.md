@@ -149,8 +149,18 @@ The suite's claims are three:
   `scripts/probe-lines.mjs` calls the real `projectToolUpdates` from the shipped
   `@deepseek-ai/dsh-llm` on each installed line and asserts both halves: the
   original request projects to 67 tools with every entry deferred, and the
-  repaired request projects to 68 with exactly one loadable. Measured on
-  `0.2.0-rc.2` and `0.2.1-rc.2`.
+  repaired request projects to 68 with exactly one loadable. **10/10 lines
+  measured — every published version the declared peer range admits**
+  (`0.1.7-rc.2`, `0.2.0-rc.1`…`0.2.0-rc.2`, `0.2.1-alpha.1`…`0.2.1-rc.2`), each
+  one identical: 67 deferred in, 68 with one loadable out. The script also
+  refuses a probed line the declared range does not admit, so the declaration and
+  the measurement cannot drift apart.
+- **The lower bounds are where the surface begins, not guesses.** `0.1.7-rc.1`
+  does not export `projectToolUpdates` at all — the predicate is a reading of
+  that function, so admitting the line would be a claim with nothing under it.
+  `0.2.0-rc.1` does export it and projects identically, so it is admitted here;
+  the earlier `0.2.0-rc.2` floor was the untested corner of that line, not a
+  measured difference.
 - **Both semver readings agree about the peer range.** One range, two consumers:
   the harness's compatibility gate reads it with `includePrerelease: true`, npm
   reads it with the default options and answers `ERESOLVE` when the sets differ.

@@ -1,4 +1,5 @@
 node_modules/
 *.tsbuildinfo
+probe/line-*/
 probe/*/node_modules/
 probe/*/package-lock.json

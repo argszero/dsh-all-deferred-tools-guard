@@ -21,10 +21,11 @@
 
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import semver from 'semver'
 import { substitution } from '../lib/substitute.js'
 import { inspect } from '../lib/verdict.js'
 
@@ -56,7 +57,13 @@ function reported() {
   }
 }
 
-/** Import one installed line's own projection. */
+/**
+ * Import one installed line's own projection.
+ *
+ * `probe/` also holds this directory's README, so the caller passes directories
+ * only: a probe set built from `readdirSync` alone fed a file to `createRequire`
+ * and died with `ENOTDIR` before a single line was measured.
+ */
 async function projectionOf(directory) {
   const require = createRequire(join(directory, 'package.json'))
   const manifest = JSON.parse(readFileSync(join(directory, 'node_modules/@deepseek-ai/dsh-llm/package.json'), 'utf8'))
@@ -66,9 +73,30 @@ async function projectionOf(directory) {
 }
 
 const report = []
-for (const name of readdirSync(probeRoot).sort()) {
+const lines = readdirSync(probeRoot, { withFileTypes: true })
+  .filter(entry => entry.isDirectory() && entry.name.startsWith('line-'))
+  .map(entry => entry.name)
+  .sort()
+/**
+ * A probed line the plugin does not claim support for, or a line it claims but
+ * nobody measured, is a claim drifting away from its evidence. The declared
+ * range is read from `package.json` and applied to every probed version under
+ * both readings — the two consumers disagree about prereleases, so the check
+ * cannot use one of them.
+ */
+const declaredRange = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+  .peerDependencies['@deepseek-ai/dsh-llm']
+for (const name of lines) {
   const directory = join(probeRoot, name)
+  if (!existsSync(join(directory, 'node_modules/@deepseek-ai/dsh-llm/package.json'))) {
+    report.push({ name, version: '-', outcome: 'SKIPPED (no install under this directory)' })
+    continue
+  }
   const { version, projectToolUpdates } = await projectionOf(directory)
+  assert.equal(semver.satisfies(version, declaredRange), true,
+    `${version} is probed but the declared peer range refuses it under the default reading`)
+  assert.equal(semver.satisfies(version, declaredRange, { includePrerelease: true }), true,
+    `${version} is probed but the declared peer range refuses it under the harness gate's reading`)
   if (typeof projectToolUpdates !== 'function') {
     report.push({ name, version, outcome: 'SKIPPED (no projectToolUpdates export)' })
     continue

@@ -1,0 +1,84 @@
+# The @argszero/dsh-all-deferred-tools-guard bundle patch: mount and go.
+#
+# A dsh session dies permanently when every tool it declares is deferred.
+#
+# The shape is not something the caller wrote. A loop-built request carries the
+# session's declarations plus its folded tool history, and the runtime projects
+# those into what the adapter actually sends:
+#
+#   packages/llm/llm/src/index.ts, adapterStream()
+#     const projectedTools = projectToolUpdates(
+#       projectedMessages, resolvedOptions.tools, modelInfo.toolUpdate, resolvedOptions.toolHistory)
+#
+# `projectToolUpdates` marks every tool-addition `deferLoading: true` — a tool
+# that arrives later is by definition loaded later — and then applies the route's
+# update mode. `llm-deepseek` declares `addition-only`
+# (packages/llm/llm-deepseek/src/models.ts:13), which filters the declarations
+# down to the active tool names. So when the one tool that was available from the
+# session's first request is removed, everything that survives came in as an
+# addition, and the Messages endpoint receives a list where every entry is
+# deferred:
+#
+#   tools: at least one tool must have defer_loading=false. All tools cannot be deferred.
+#
+# The code is `INVALID_REQUEST`, so it is not retried, and the shape belongs to
+# the conversation rather than to one turn — every later request in that session
+# is refused in exactly the same way.
+#
+# `@deepseek-ai/dsh-llm-pi-ai` already answers this shape for its own routes, by
+# prepending a reserved placeholder the model is told never to call
+# (packages/llm/llm-pi-ai/src/adapter.ts). The DeepSeek adapter has no equivalent,
+# and a plugin cannot add one inside it: `registerAdapter` is all-or-nothing per
+# provider route and a second registration is `DUPLICATE_ADAPTER`.
+#
+# A plugin *can* put a different request in front of the dispatch, because
+# `llm/stream` is a waterfall:
+#
+#   packages/llm/llm/src/index.ts
+#     stream(options) { return this.streamWithRegistration(options) }
+#     streamWithRegistration(options) { return this.ctx.waterfall(this, 'llm/stream', options, () => this.adapterStream(options)) }
+#
+# A loop-built request arrives deep frozen — its content is a pure function of
+# the session log — and `next()` takes no argument, so the only way to hand the
+# adapter a different request is to ask the runtime for a stream of that request:
+# `ctx.llm.stream(replacement)`. That re-enters this same waterfall, so the
+# listener sees its own replacement; identity is what stops it, and every object
+# this plugin builds is recorded in a `WeakSet`.
+#
+# Two triggers decide when. The first reads the request itself: a wire entry is
+# loadable exactly when its name was already declared, non-deferred, in
+# `toolHistory.tools`, so "every active name arrived after the baseline" is a set
+# operation and needs no knowledge of the route's update mode. The second is the
+# provider's own refusal: when the prediction is silent but the request is in the
+# tool-update regime, the first chunk of the stream is examined, and the exact
+# refusal above is answered by dispatching the repaired request. A refused
+# request emits no content chunk, so starting over costs nothing.
+#
+# The repair inserts the same placeholder the pi-ai adapter inserts — the same
+# name, the same description — deliberately: on a route that already guards
+# itself, that guard's own `every(... === true)` predicate is false once the
+# placeholder is present, so it adds nothing and the wire request is the one that
+# route would have produced anyway.
+#
+# Nothing is written to the session log or to disk: the plugin repairs the
+# request that is about to be sent, not the history that produced it.
+#
+# The plugin has no runtime dependency. It imports no harness package for value —
+# only types — so a `profile` deployment cannot materialize a second copy of a
+# harness package, a failure this repository has already shipped more than once.
+#
+# `mode: 'guard'` (the default) repairs. `observe` decides and counts exactly as
+# `guard` would and changes nothing, which is how an operator finds out whether a
+# route actually produces the shape before trusting a rewrite with it; `off`
+# installs no listener. `{{allDeferredToolsGuard}}` serves `snapshot()` — what was
+# seen, what was replaced, and the plugin's own blind spots on every read.
+#
+# `providers` narrows the guard to named routes and is empty by default: the
+# shape is decided by a projection this plugin cannot see, so covering every
+# route is the point.
+
+- insert:
+    - id: all-deferred-tools-guard
+      name: '@argszero/dsh-all-deferred-tools-guard'
+      config:
+        mode: guard

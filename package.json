@@ -1,0 +1,71 @@
+{
+  "name": "@argszero/dsh-all-deferred-tools-guard",
+  "description": "Keeps a dsh session usable when its tool list becomes entirely deferred. Discussions #10163 reports sessions on dsh desktop 0.2.1-rc.2 that die permanently with `tools: at least one tool must have defer_loading=false. All tools cannot be deferred.` The shape is produced inside the runtime, not by the caller: `projectToolUpdates` (packages/llm/llm/src/content.ts) marks every tool-addition `deferLoading: true`, and `llm-deepseek` declares `toolUpdate: 'addition-only'` (packages/llm/llm-deepseek/src/models.ts:13), so when the one tool that was available from the session's first request is removed, the projection filters the declarations down to additions only and every remaining entry is deferred. The DeepSeek serializer sends that list unchanged; `INVALID_REQUEST` is not retried, and the shape belongs to the conversation, so every later request is refused too. `llm-pi-ai` already answers this exact shape for its own routes by prepending a reserved placeholder tool (packages/llm/llm-pi-ai/src/adapter.ts). A plugin cannot add that guard inside the DeepSeek adapter - `registerAdapter` is all-or-nothing per provider route and a second registration is `DUPLICATE_ADAPTER` - but `llm/stream` is a waterfall, so this plugin puts a different request in front of the dispatch: it predicts the all-deferred projection from the request itself and, when it is not certain, treats the provider's own refusal as the last word, then re-dispatches with the same placeholder the pi-ai adapter uses. Nothing is written to the session log or to disk. Zero runtime dependencies, fail-open, no sandbox changes.",
+  "version": "0.1.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/**/*.js",
+    "lib/types/**/*.d.ts",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/argszero/dsh-all-deferred-tools-guard.git"
+  },
+  "homepage": "https://github.com/argszero/dsh-all-deferred-tools-guard#readme",
+  "bugs": {
+    "url": "https://github.com/argszero/dsh-all-deferred-tools-guard/issues"
+  },
+  "keywords": [
+    "cordis",
+    "deepseek-harness",
+    "dsh",
+    "plugin",
+    "defer-loading",
+    "deferred-tools",
+    "tool-addition",
+    "llm-stream",
+    "session-recovery"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-llm": ">=0.1.7-rc.2 <0.2.0-0 || >=0.2.0-rc.2 <0.2.1-0 || >=0.2.1-alpha.1 <0.2.2-0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh-llm": "^0.2.1-rc.2",
+    "@types/node": "^24.19.1",
+    "semver": "^7.7.2",
+    "typescript": "^5.9.3"
+  },
+  "scripts": {
+    "build": "tsc",
+    "pretest": "tsc",
+    "test": "node --test \"test/*.spec.mjs\"",
+    "test:inject": "node scripts/inject-defects.mjs",
+    "prepublishOnly": "tsc"
+  },
+  "engines": {
+    "node": "^22.19 || >=24"
+  }
+}
